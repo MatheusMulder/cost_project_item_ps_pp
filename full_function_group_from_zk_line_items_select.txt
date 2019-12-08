@@ -1,0 +1,581 @@
+--------------------------------------------------------------------------------
+08.12.19 S4Q      Include LZFGPPMCOSTU02                        Pág.      1
+--------------------------------------------------------------------------------
+
+    1  FUNCTION ZK_LINE_ITEMS_SELECT.
+    2  *"--------------------------------------------------------------------
+    3  *"*"Interface local:
+    4  *"  IMPORTING
+    5  *"     VALUE(I_POS_TABLE) TYPE  KAEP_TABNAME
+    6  *"     VALUE(IT_NAMETAB_POS) TYPE  KAEP_T_NAMETAB OPTIONAL
+    7  *"     VALUE(I_HEAD_TABLE) TYPE  KAEP_TABNAME OPTIONAL
+    8  *"     VALUE(IT_NAMETAB_HEAD) TYPE  KAEP_T_NAMETAB OPTIONAL
+    9  *"     VALUE(IS_KEYINFO) TYPE  KKBLO_KEYINFO OPTIONAL
+   10  *"     VALUE(I_SELECT_FORM) TYPE  KAEP_FORMNAME
+   11  *"     VALUE(IT_OBLIGATORY_FIELDS) TYPE  KAEP_T_FIELDNAME OPTIONAL
+   12  *"     VALUE(IT_SEL_DEPEND) TYPE  KAEP_T_SEL_DEPEND OPTIONAL
+   13  *"     VALUE(I_CO_AREA) LIKE  TKA01-KOKRS
+   14  *"     VALUE(IT_SELECTION) TYPE  KAEP_T_COSEL
+   15  *"     VALUE(IT_FREE_SELECTION) TYPE  RSDS_TWHERE OPTIONAL
+   16  *"     VALUE(I_CALLING_PROGRAM) LIKE  SY-REPID OPTIONAL
+   17  *"     VALUE(I_FIELDCAT_SELECT) LIKE  KAEP_SETT-FIXVAR
+   18  *"         DEFAULT SY-BATCH
+   19  *"     VALUE(I_ONLINE_MAXSEL) LIKE  KAEP_SETT-MAXSEL DEFAULT 10000
+   20  *"     VALUE(IT_SORT) TYPE  SLIS_T_SORTINFO_ALV OPTIONAL
+   21  *"  EXPORTING
+   22  *"     VALUE(ET_OBJNR) TYPE  KAEP_T_OBJNR
+   23  *"     VALUE(ET_KSTAR) TYPE  KAEP_T_KSTAR
+   24  *"     VALUE(ET_MATNR) TYPE  KAEP_T_MATNR
+   25  *"     VALUE(ET_GKONT) TYPE  KAEP_T_GKONT
+   26  *"     VALUE(ET_EBELN) TYPE  KAEP_T_EBELN
+   27  *"  CHANGING
+   28  *"     VALUE(CT_FIELDCAT) TYPE  SLIS_T_FIELDCAT_ALV
+   29  *"     VALUE(IT_KAEPX_DATA_CARRIER) TYPE  KAEPX_DATA_CARRIER_T
+   30  *"         OPTIONAL
+   31  *"  EXCEPTIONS
+   32  *"      NO_DATA_SELECTED
+   33  *"--------------------------------------------------------------------
+   34
+   35    DATA: LT_FIELDS_POS      TYPE KAEP_T_FIELDNAME,
+   36          LT_FIELDS_HEAD     TYPE KAEP_T_FIELDNAME,
+   37          LT_VAR_COND_POS    TYPE KAEP_T_VAR_COND,
+   38          LT_VAR_COND_HEAD   TYPE KAEP_T_VAR_COND,
+   39          LT_NAMETAB_POS     TYPE KAEP_T_NAMETAB,
+   40          LT_NAMETAB_HEAD    TYPE KAEP_T_NAMETAB,
+   41          LT_SELECTION_REST  TYPE KAEP_T_COSEL.
+   42    DATA: LD_HEAD_FIELD      TYPE KAEP_FIELDNAME,
+   43          LD_POS_FIELD       TYPE KAEP_FIELDNAME.
+   44
+   45    GD-KOKRS = I_CO_AREA.
+   46
+   47  *.needed for KAEPX
+   48    gt_selection_kaepx[] = it_selection[].
+   49
+   50  * read nametabs (if not given) and sort them
+   51    IF IT_NAMETAB_POS[] IS INITIAL.
+   52      PERFORM INIT_NAMETAB USING    I_POS_TABLE
+   53                           CHANGING LT_NAMETAB_POS.
+   54    ELSE.
+   55      LT_NAMETAB_POS[] = IT_NAMETAB_POS[].
+   56    ENDIF.
+   57    SORT LT_NAMETAB_POS[] BY FIELDNAME.
+   58
+   59    IF NOT I_HEAD_TABLE IS INITIAL.
+   60      IF IT_NAMETAB_HEAD[] IS INITIAL.
+   61        PERFORM INIT_NAMETAB USING    I_HEAD_TABLE
+--------------------------------------------------------------------------------
+08.12.19 S4Q      Include LZFGPPMCOSTU02                        Pág.      2
+--------------------------------------------------------------------------------
+
+   62                             CHANGING LT_NAMETAB_HEAD.
+   63      ELSE.
+   64        LT_NAMETAB_HEAD[] = IT_NAMETAB_HEAD[].
+   65      ENDIF.
+   66      SORT LT_NAMETAB_HEAD[] BY FIELDNAME.
+   67    ENDIF.
+   68
+   69  * fill global ranges tables for fix selection fields
+   70    PERFORM INIT_GLOBAL_RANGES USING    IT_SELECTION
+   71                                        IT_FREE_SELECTION
+   72                               CHANGING LT_SELECTION_REST.
+   73
+   74  * selection only gets shown and obligatory fields?
+   75    IF NOT I_FIELDCAT_SELECT IS INITIAL.
+   76  * ..yes: append obligatory fields to selection field lists
+   77      PERFORM INIT_OBLIGATORY_FIELDS USING    IT_OBLIGATORY_FIELDS
+   78                                              LT_NAMETAB_POS
+   79                                              LT_NAMETAB_HEAD
+   80                                     CHANGING LT_FIELDS_POS
+   81                                              LT_FIELDS_HEAD.
+   82
+   83      SORT IT_SEL_DEPEND BY SHOWN_FIELD.
+   84    ENDIF.
+   85
+   86  *.in case of HANA use logic to get dependent fields from field list
+   87    if not gt_kaepx_data_carrier[] is initial.
+   88  * get further selection fields into lists and create variable
+   89  * conditions for select
+   90       PERFORM INIT_SELECT_PARAMETERS USING GD-POS_DB_TABLE
+   91                                            LT_NAMETAB_POS
+   92                                            IT_FREE_SELECTION
+   93                                            LT_SELECTION_REST
+   94                                            CT_FIELDCAT
+   95                                            IT_SEL_DEPEND
+   96                                            'X'
+   97                                            IT_SORT
+   98                                   CHANGING LT_FIELDS_POS
+   99                                            LT_VAR_COND_POS.
+  100    else.
+  101  * get further selection fields into lists and create variable
+  102  * conditions for select
+  103       PERFORM INIT_SELECT_PARAMETERS USING GD-POS_DB_TABLE
+  104                                            LT_NAMETAB_POS
+  105                                            IT_FREE_SELECTION
+  106                                            LT_SELECTION_REST
+  107                                            CT_FIELDCAT
+  108                                            IT_SEL_DEPEND
+  109                                            I_FIELDCAT_SELECT
+  110                                            IT_SORT
+  111                                   CHANGING LT_FIELDS_POS
+  112                                            LT_VAR_COND_POS.
+  113    endif.
+  114
+  115    IF NOT I_HEAD_TABLE IS INITIAL.
+  116      PERFORM INIT_SELECT_PARAMETERS USING    GD-HEAD_DB_TABLE
+  117                                              LT_NAMETAB_HEAD
+  118                                              IT_FREE_SELECTION
+  119                                              LT_SELECTION_REST
+  120                                              CT_FIELDCAT
+  121                                              IT_SEL_DEPEND
+  122                                              I_FIELDCAT_SELECT
+--------------------------------------------------------------------------------
+08.12.19 S4Q      Include LZFGPPMCOSTU02                        Pág.      3
+--------------------------------------------------------------------------------
+
+  123                                              IT_SORT
+  124                                     CHANGING LT_FIELDS_HEAD
+  125                                              LT_VAR_COND_HEAD.
+  126      IF NOT I_FIELDCAT_SELECT IS INITIAL.
+  127        IF NOT IS_KEYINFO IS INITIAL.
+  128          DO VARYING LD_HEAD_FIELD FROM IS_KEYINFO-MASTER01
+  129                                   NEXT IS_KEYINFO-MASTER02
+  130             VARYING LD_POS_FIELD  FROM IS_KEYINFO-SLAVE01
+  131                                   NEXT IS_KEYINFO-SLAVE02.
+  132            IF NOT LD_HEAD_FIELD IS INITIAL AND
+  133               NOT LD_POS_FIELD IS INITIAL.
+  134              COLLECT LD_HEAD_FIELD INTO LT_FIELDS_HEAD.
+  135              COLLECT LD_POS_FIELD  INTO LT_FIELDS_POS.
+  136            ELSE.
+  137              EXIT.
+  138            ENDIF.
+  139          ENDDO.
+  140        ENDIF.
+  141      ENDIF.
+  142    ENDIF.
+  143
+  144  * delete fields from fieldcat which are not filled or needed
+  145    IF NOT I_FIELDCAT_SELECT IS INITIAL.
+  146        PERFORM CONDENSE_FIELDCAT USING LT_FIELDS_POS
+  147                                        LT_FIELDS_HEAD
+  148                                        IT_SORT
+  149                                  CHANGING CT_FIELDCAT.
+  150    ENDIF.
+  151
+  152  *  CALL FUNCTION 'K_PERFORMANCE_START'
+  153  *       EXPORTING
+  154  *            I_TABNAME = I_POS_TABLE.
+  155
+  156    IF NOT I_HEAD_TABLE IS INITIAL.
+  157      PERFORM (I_SELECT_FORM) IN PROGRAM SAPLZFGPPMCOST
+  158                              USING  I_CALLING_PROGRAM
+  159                                     LT_VAR_COND_POS
+  160                                     LT_VAR_COND_HEAD
+  161                                     LT_FIELDS_POS
+  162                                     LT_FIELDS_HEAD
+  163                                     I_POS_TABLE
+  164                                     I_HEAD_TABLE.
+  165      IF <GT_HEAD_DATA> IS INITIAL.
+  166        MESSAGE E422(KB) RAISING NO_DATA_SELECTED.
+  167      ENDIF.
+  168
+  169    ELSEIF NOT I_POS_TABLE IS INITIAL.
+  170      PERFORM (I_SELECT_FORM) IN PROGRAM SAPLZFGPPMCOST
+  171                              USING  I_CALLING_PROGRAM
+  172                                     LT_VAR_COND_POS
+  173                                     LT_FIELDS_POS
+  174                                     I_POS_TABLE.
+  175      IF <GT_POS_DATA> IS INITIAL.
+  176        MESSAGE E422(KB) RAISING NO_DATA_SELECTED.
+  177      ENDIF.
+  178
+  179    ELSE.
+  180
+  181    ENDIF.
+  182
+  183  *  SORT <GT_POS_DATA>.                                 "2548612
+--------------------------------------------------------------------------------
+08.12.19 S4Q      Include LZFGPPMCOSTU02                        Pág.      4
+--------------------------------------------------------------------------------
+
+  184  *  DESCRIBE TABLE <GT_POS_DATA> LINES SY-TFILL.
+  185  *  CALL FUNCTION 'K_PERFORMANCE_STOP'
+  186  *       EXPORTING
+  187  *            I_TABNAME        = I_POS_TABLE
+  188  *            I_RECORD_COUNTER = SY-TFILL.
+  189
+  190  * export master data keys
+  191    ET_OBJNR[] = GT_OBJNR[].
+  192    ET_MATNR[] = GT_MATNR[].
+  193    ET_KSTAR[] = GT_KSTAR[].
+  194    ET_GKONT[] = GT_GKONT[].
+  195    ET_EBELN[] = GT_EBELN[].
+  196  ENDFUNCTION.
+--------------------------------------------------------------------------------
+08.12.19 S4Q      Include LZFGPPMCOSTU01                        Pág.      5
+--------------------------------------------------------------------------------
+
+    1  FUNCTION zk_line_items_select_and_list.
+    2  *"----------------------------------------------------------------------
+    3  *"*"Interface local:
+    4  *"  IMPORTING
+    5  *"     VALUE(I_CALLING_REPORT) LIKE  SY-REPID
+    6  *"     VALUE(I_ITEM_GROUP) TYPE  KAEP_ITEM_GROUP
+    7  *"     VALUE(I_REP_OBJECT) TYPE  KAEP_REP_OBJECT
+    8  *"     VALUE(I_DISPLAY_VARIANT) TYPE  KAEP_DISVARIANT OPTIONAL
+    9  *"     VALUE(I_CO_AREA) LIKE  TKA01-KOKRS
+   10  *"     VALUE(I_ACTUAL_VERSION) LIKE  TKA09-VERSN DEFAULT '000'
+   11  *"     VALUE(IT_SELECTION) TYPE  KAEP_T_COSEL
+   12  *"     VALUE(IT_FREE_SELECTION) TYPE  RSDS_TWHERE OPTIONAL
+   13  *"     VALUE(IT_FREE_SELECTION_RANGE) TYPE  RSDS_TRANGE OPTIONAL
+   14  *"     VALUE(I_EXIT_SET_TITLE) TYPE  KAEP_FORMNAME OPTIONAL
+   15  *"     VALUE(I_EXIT_USER_COMMAND) TYPE  KAEP_FORMNAME OPTIONAL
+   16  *"     VALUE(I_SHOWNOZERO) TYPE  KAEP_SETT-SHOWNOZERO OPTIONAL
+   17  *"     VALUE(I_FIX_VARIANT) LIKE  KAEP_SETT-FIXVAR OPTIONAL
+   18  *"     VALUE(I_ONLINE_MAXSEL) LIKE  KAEP_SETT-MAXSEL DEFAULT 10000
+   19  *"     VALUE(IT_GROUPS) TYPE  KAEP_T_GROUPS OPTIONAL
+   20  *"     VALUE(I_CALLED_WITH_DATA) TYPE  KAEP_FLAG DEFAULT SPACE
+   21  *"     VALUE(I_CALLED_BY_RRI) TYPE  KAEP_FLAG DEFAULT SPACE
+   22  *"     VALUE(I_UPDATE) TYPE  KAEP_FLAG DEFAULT SPACE
+   23  *"     VALUE(IT_PD_SELECTION) TYPE  KAEP_T_COSEL OPTIONAL
+   24  *"     VALUE(I_USEDB) LIKE  DTINP-XUSEAR DEFAULT 'X'
+   25  *"     VALUE(I_USEAR) LIKE  DTINP-XUSEAR DEFAULT SPACE
+   26  *"     VALUE(I_AROBJ) LIKE  ARCH_OBJ-OBJECT OPTIONAL
+   27  *"     VALUE(I_TRANSFER_VERSIONS) TYPE  KAEP_FLAG DEFAULT 'X'
+   28  *"     VALUE(I_NO_DISPLAY) TYPE  C DEFAULT 'X'
+   29  *"     VALUE(I_USE_GRID) TYPE  KAEP_SETT-USEGRD DEFAULT 'X'
+   30  *"     VALUE(I_TCODE) TYPE  SY-TCODE OPTIONAL
+   31  *"     VALUE(I_TREE_DISPLAY) TYPE  C OPTIONAL
+   32  *"     VALUE(I_CONTAINER) TYPE REF TO  CL_GUI_CUSTOM_CONTAINER OPTIONAL
+   33  *"     VALUE(I_HANA_ACTIVE) TYPE  C OPTIONAL
+   34  *"     VALUE(I_TOP_OF_PAGE_CONTAINER) TYPE REF TO
+   35  *"        CL_GUI_CUSTOM_CONTAINER OPTIONAL
+   36  *"     VALUE(I_GROUP_OBJ) TYPE  C DEFAULT 'X'
+   37  *"     VALUE(I_SOH_ACTIVE) TYPE  C OPTIONAL
+   38  *"  EXPORTING
+   39  *"     REFERENCE(T_KAEP_T_COVP_EXT) TYPE  ZTTKAEP_T_COVP_EXT
+   40  *"  TABLES
+   41  *"      T_ARSEL STRUCTURE  RNG_ARCHIV OPTIONAL
+   42  *"  CHANGING
+   43  *"     VALUE(IT_KAEPX_DATA_CARRIER) TYPE  KAEPX_DATA_CARRIER_T OPTIONAL
+   44  *"     VALUE(ER_ALV_GRID) TYPE REF TO  CL_GUI_ALV_GRID OPTIONAL
+   45  *"  EXCEPTIONS
+   46  *"      UNKNOWN_ITEM_GROUP
+   47  *"      NO_DATA_SELECTED
+   48  *"----------------------------------------------------------------------
+   49    DATA: ls_text_flags     TYPE kaep_text_flags,
+   50          ls_disvariant_key TYPE kaep_disvariant_key,
+   51          ls_layout         TYPE slis_layout_alv,
+   52          ls_selection      TYPE kaep_cosel,
+   53          ld_subrc          LIKE sy-subrc,
+   54          ld_con_hex02      TYPE x VALUE '02'.
+   55
+   56  *.in case of container handling do the refresh atthe beginning not at
+   57  *.the end
+   58    IF NOT i_container IS INITIAL.
+   59      PERFORM refresh_hana.
+   60    ENDIF.
+   61
+--------------------------------------------------------------------------------
+08.12.19 S4Q      Include LZFGPPMCOSTU01                        Pág.      6
+--------------------------------------------------------------------------------
+
+   62    gd-use_alv_grid = i_use_grid.
+   63    CLEAR gd_extern.                                          "HW763206
+   64
+   65    IF sy-tcode IS INITIAL.                                   "802740
+   66      gd_tcode = i_tcode.                                     "802740
+   67    ENDIF.                                                    "802740
+   68
+   69    LOOP AT it_selection INTO ls_selection WHERE field = 'INFOSYS'.
+   70      IF NOT ls_selection-low IS INITIAL.
+   71        gd-infosys = 'X'.
+   72      ENDIF.
+   73    ENDLOOP.
+   74
+   75  *.global data for kaepx
+   76    gt_kaepx_data_carrier[] = it_kaepx_data_carrier[].
+   77    gd_usear                = i_usear.
+   78    gt_it_selection         = it_selection.
+   79    gd_fix_variant          = i_fix_variant.
+   80    gd_group_obj            = i_group_obj.
+   81
+   82  * always only select shown fields if it is batch or start with printing
+   83    IF sy-subty O ld_con_hex02 OR sy-batch = 'X'.
+   84      i_fix_variant = con_on.
+   85      CLEAR gd-use_alv_grid.
+   86    ENDIF.
+   87
+   88    gd-usear = i_usear.
+   89
+   90    gd_soh_active = i_soh_active.
+   91    gt_free_selection = it_free_selection.
+   92
+   93  * initialize global parameters (including coding fieldcat)
+   94    IF i_calling_report IS INITIAL OR
+   95       i_rep_object = con_rep_object-allocations.
+   96      ls_disvariant_key-report    = self.
+   97    ELSE.
+   98      ls_disvariant_key-report    = i_calling_report.
+   99    ENDIF.
+  100    ls_disvariant_key-handle    = i_item_group.
+  101    ls_disvariant_key-log_group = i_rep_object.
+  102    ls_disvariant_key-variant   = i_display_variant.
+  103
+  104  * ls_layout-max_linesize = sy-linsz.                           "1277539
+  105
+  106  * check if message handling is active, if not activate it
+  107    CALL FUNCTION 'MESSAGES_ACTIVE'
+  108      EXCEPTIONS
+  109        not_active = 1.
+  110    IF sy-subrc <> 0.
+  111      CALL FUNCTION 'MESSAGES_INITIALIZE'.
+  112    ELSE.                                                     "HW763206
+  113      gd_extern = abap_true.                                  "HW763206
+  114    ENDIF.
+  115
+  116    PERFORM message_set_defaultline USING '1'.
+  117
+  118    PERFORM init_globals USING ls_disvariant_key
+  119                               i_shownozero                  "COGM 1671025
+  120                               i_fix_variant
+  121                               i_online_maxsel
+  122                               it_selection
+--------------------------------------------------------------------------------
+08.12.19 S4Q      Include LZFGPPMCOSTU01                        Pág.      7
+--------------------------------------------------------------------------------
+
+  123                               i_calling_report
+  124                               i_exit_user_command
+  125                               i_exit_set_title
+  126                               i_co_area
+  127                               i_actual_version
+  128                               i_called_with_data
+  129                               i_called_by_rri
+  130                               i_update
+  131                               i_usear
+  132                               i_transfer_versions
+  133                         CHANGING gd
+  134                                  ls_layout.
+  135
+  136    PERFORM init_alv_events USING i_fix_variant.
+  137
+  138    PERFORM read_disvariant USING    ls_layout
+  139                            CHANGING ls_disvariant_key.
+  140
+  141    PERFORM message_set_defaultline USING '2'.
+  142
+  143
+  144    IF NOT gt_kaepx_data_carrier[] IS INITIAL.
+  145      REFRESH: <gt_head_data>, <gt_pos_data>.
+  146      REFRESH gt_kaepx_data_carrier.
+  147    ENDIF.
+  148  *
+  149  *****************************************************************
+  150  **..determine selection out of variant....
+  151  ****************************************************************
+  152
+  153    PERFORM select USING it_selection
+  154                       it_free_selection
+  155                       i_fix_variant
+  156                       i_online_maxsel.
+  157
+  158    t_kaep_t_covp_ext = gt_covp_ext.
+  159
+  160    REFRESH: <gt_head_data>, <gt_pos_data>.
+  161
+  162  ENDFUNCTION.
+--------------------------------------------------------------------------------
+08.12.19 S4Q      Include LZFGPPMCOSTTOP                        Pág.      8
+--------------------------------------------------------------------------------
+
+    1  FUNCTION-POOL ZFGPPMCOST.                    "MESSAGE-ID ..
+    2
+    3  CONSTANTS: self LIKE sy-repid VALUE 'SAPLKAEP',
+    4  *..........text type: H = Header
+    5             con_text_type_header TYPE c VALUE 'H',
+    6  *..........application is one part of the text header key
+    7             con_application LIKE tappl-applclass VALUE 'KS',
+    8             con_guict       TYPE i VALUE 100,
+    9             con_guict_1000  TYPE i VALUE 1000,
+   10             con_guict_10000 TYPE i VALUE 10000.
+   11
+   12  TYPE-POOLS: kaep,
+   13              kkblo,
+   14              rsds,
+   15              gsetc,
+   16              aim,
+   17              repp.
+   18
+   19  INCLUDE <icon>.
+   20
+   21  TYPES: BEGIN OF gs_cash_document_key,  " necessary for PS cash documents
+   22             ebeln     LIKE kaep_fnac-ebeln,
+   23             refbk     LIKE kaep_fnac-refbk,
+   24             refgj     LIKE kaep_fnac-refgj,
+   25             refbt     LIKE kaep_fnac-refbt,
+   26             refbn     LIKE kaep_fnac-refbn,
+   27             wrttp     LIKE kaep_fnac-wrttp,
+   28             awtyp     LIKE kaep_fnac-awtyp,
+   29             aworg     LIKE kaep_fnac-aworg,
+   30             awsys     LIKE kaep_fnac-logsystem,
+   31             kblnr     LIKE kaep_fnac-kblnr,
+   32         END OF gs_cash_document_key.
+   33
+   34  TABLES: csku,
+   35          makt,
+   36          t001, fmfpo.                   "by GM for select_v_cofp
+   37  * entry for new table
+   38  * global ranges tables
+   39  RANGES: gr_objnr FOR covp-objnr,
+   40          gr_parob FOR covp-parob,
+   41          gr_parob1 FOR covp-parob1,
+   42          gr_uspob FOR covp-uspob,
+   43          gr_belnr FOR covp-belnr,
+   44          gr_kokrs FOR covp-kokrs,
+   45          gr_kstar FOR covp-kstar,
+   46          gr_gjahr FOR covp-gjahr,
+   47          gr_perio FOR covp-perio,
+   48          gr_budat FOR covp-budat,
+   49          gr_versn FOR covp-versn,
+   50          gr_wrttp FOR covp-wrttp,
+   51          gr_wkgbtr FOR cooi-wkgbtr,
+   52          gr_vorga FOR bpej-vorga,
+   53          gr_lednr FOR bpej-lednr,
+   54          gr_bldat FOR bpbk-bldat,
+   55          gr_belkz FOR ccr1s-belkz.
+   56  DATA:   gd_flgjg TYPE c,   "flag for total values with budget line items
+   57          gd_ucomm LIKE sy-ucomm.        "buffer for last sy-ucomm
+   58
+   59  * global tables for master data
+   60  DATA:   gt_objnr TYPE kaep_t_objnr WITH HEADER LINE,
+   61          gt_kstar TYPE kaep_t_kstar WITH HEADER LINE,
+--------------------------------------------------------------------------------
+08.12.19 S4Q      Include LZFGPPMCOSTTOP                        Pág.      9
+--------------------------------------------------------------------------------
+
+   62          gt_matnr TYPE kaep_t_matnr WITH HEADER LINE,
+   63          gt_ebeln TYPE kaep_t_ebeln,
+   64          gt_gkont TYPE kaep_t_gkont  WITH HEADER LINE,
+   65          gt_qmnum TYPE kaep_t_qmnum WITH HEADER LINE.
+   66  DATA: gt_objnr_master TYPE kaep_t_objnr_master WITH HEADER LINE,
+   67        gt_kstar_master TYPE kaep_t_kstar_master WITH HEADER LINE,
+   68        gt_gkont_master TYPE kaep_t_gkont_and_texts WITH HEADER LINE,
+   69        gt_ebeln_master TYPE kaep_t_ebtxt WITH HEADER LINE,
+   70        gt_matnr_master TYPE kaep_t_matnr_master WITH HEADER LINE,
+   71        gt_qmnum_master TYPE kaep_t_qmnum_master WITH HEADER LINE.
+   72
+   73  * global tables for text routines
+   74  DATA  gt_characteristic_texts TYPE kaep_t_characteristic_texts.
+   75  DATA  gt_characteristic_save  TYPE kaep_t_characteristic_texts.
+   76  DATA  gt_free_selection_range TYPE rsds_trange.
+   77
+   78  DATA: gs_text_flags_refresh TYPE kaep_text_flags_refresh.
+   79
+   80  DATA: gt_dfies LIKE dfies OCCURS 0 WITH HEADER LINE.
+   81  * global data
+   82  DATA: BEGIN OF gd,
+   83          item_group        TYPE kaep_item_group,
+   84          rep_object        TYPE kaep_rep_object,
+   85          sign_apc          LIKE rkact_cl-sign_ap,
+   86          pos_db_table      TYPE kaep_tabname,
+   87          head_db_table     TYPE kaep_tabname,
+   88          fieldstruc        TYPE kaep_tabname,
+   89          pos_i_table       TYPE kkblo_tabname,
+   90          head_i_table      TYPE kkblo_tabname,
+   91          select_form       TYPE kaep_formname,
+   92          result_form       TYPE kaep_formname,
+   93          fieldcat_form     TYPE kaep_formname,
+   94          exit_user_command TYPE kaep_formname,
+   95          exit_set_title    TYPE kaep_formname,
+   96          calling_report    LIKE sy-repid,
+   97          kokrs             LIKE tka01-kokrs,
+   98          actual_version    LIKE tka09-versn,
+   99          valutyp           LIKE tka09-valutyp,
+  100          pf_status         LIKE shkontext-pfkey,
+  101          title             LIKE rsmpe-titcode,
+  102          variant           LIKE disvariant-variant,
+  103          old_variant       LIKE disvariant-variant,
+  104          shownozero        LIKE kaep_sett-shownozero,    "COGM 1671025
+  105          fix_variant       TYPE kaep_flag,
+  106          maxsel            LIKE kaep_sett-maxsel,
+  107          common_text_table LIKE tkalv-txt_cmntab,
+  108          field_text_table  LIKE tkalv-txt_fldtab,
+  109          from_per          LIKE covja-perab,
+  110          to_per            LIKE covja-perbi,
+  111          called_with_data  TYPE kaep_flag,
+  112          called_by_rri     TYPE kaep_flag,
+  113          transfer_vers          TYPE i,
+  114          selk_not_first    TYPE kaep_flag,
+  115          update            TYPE kaep_flag,    " call in update mode
+  116          afabe             LIKE  t093b-afabe,
+  117          settlement_rule_save TYPE kaep_flag, " K_SETTLEMENT_RULE_SAVE
+  118                                         " must be called before leaving
+  119          coepd_save           TYPE kaep_flag, " COEPD_UPDATE_BURE
+  120                                         " must be called before leaving
+  121          retirement        TYPE kaep_flag, " called for asset retirement
+  122          debugging         TYPE c,
+--------------------------------------------------------------------------------
+08.12.19 S4Q      Include LZFGPPMCOSTTOP                        Pág.     10
+--------------------------------------------------------------------------------
+
+  123  * report-curreny (if one of transaction-, CO-area- or objectcurrency)
+  124          rep_curr_type(3) TYPE c,
+  125  * report-currency (if different from transaction, object- or CO-curr.)
+  126          rep_target_curr   LIKE ccr1h-zwaer,
+  127  * if report-Curr. has to be calculated, then source-curr. is either
+  128  * transaction-, CO-area- or objectcurrency
+  129          source_curr_type(3) TYPE c,
+  130  * type of currency-conversion
+  131          conv_type         LIKE covj-kurst,
+  132  * currency-conversion date
+  133          conv_date         LIKE ccr1h-date,
+  134  * R = new items added by repost
+  135          new_items_added   TYPE c,
+  136  * X show also empty columns
+  137  *        display_all(1)    type c,
+  138          use_alv_grid      TYPE c,
+  139          no_display        TYPE c,
+  140          usear(1)          TYPE c,
+  141          infosys(1)        TYPE c,
+  142        END OF gd.
+  143
+  144  DATA: gd_soh_active         TYPE C,
+  145        gt_free_selection     TYPE RSDS_TWHERE.
+  146
+  147  *.global data for KAEPX
+  148  data: gt_kaepx_data_carrier type KAEPX_DATA_CARRIER_T.
+  149  data: gs_kaepx_data_carrier type KAEPX_DATA_CARRIER.
+  150  data: gs_kaepx_relevant     type kaepx_data.
+  151  data: gd_usear              LIKE DTINP-XUSEAR.
+  152  data: gt_it_selection       TYPE KAEP_T_COSEL.
+  153  data: gd_fix_variant        LIKE KAEP_SETT-FIXVAR.
+  154  data: gs_text_flags         TYPE kaep_text_flags.
+  155  data: gd_kaepx_active(1).
+  156  data: gd_group_obj(1).
+  157  data: gt_selection_kaepx    TYPE  KAEP_T_COSEL.
+  158  data: gt_container_fcat     TYPE  lvc_t_fcat.
+  159  data: gt_container_sort     TYPE  LVC_T_SORT.
+  160  data: gt_container_filter   TYPE  LVC_T_FILT.
+  161  data: gt_container_layout   TYPE  LVC_S_LAYO.
+  162  data: ok_code               like sy-ucomm.
+  163  data: save_ok_code          like sy-ucomm.
+  164  data: g_container           type scrfname value 'CUSTOM_CONTAINER'.
+  165  data: g_custom_container    type ref to cl_gui_custom_container.
+  166  data: g_alv_grid            type ref to cl_gui_alv_grid.
+  167
+  168  * grid object for display in container
+  169  DATA   g_list TYPE REF TO cl_gui_alv_grid.
+  170
+  171  DATA:  gt_header_texts TYPE kaep_t_header_text.
+  172
+  173  * global tables and structures for steering
+  174  DATA: gt_coding_fieldcat   TYPE slis_t_fieldcat_alv WITH HEADER LINE,
+  175        gt_grid_coding_fieldcat TYPE lvc_t_fcat,
+  176        gs_grid_coding_fieldcat TYPE lvc_s_fcat,
+  177        gt_variant_fieldcat  TYPE slis_t_fieldcat_alv WITH HEADER LINE,
+  178        gt_grid_variant_fieldcat TYPE lvc_t_fcat,
+  179        gs_grid_variant_fieldcat TYPE lvc_s_fcat,
+  180        gt_extab             TYPE kkblo_t_extab,
+  181        gs_keyinfo           TYPE kkblo_keyinfo,
+  182        gt_field_groups      TYPE slis_t_sp_group_alv WITH HEADER LINE,
+  183        gt_nametab_pos       TYPE kaep_t_nametab,
